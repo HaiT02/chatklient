@@ -2,64 +2,130 @@ namespace chatklient;
 
 using SocketIOClient;
 
-public class SocketManager
-{
-    private static SocketIO _client;
-    private static readonly string Path = "/sys25d";
-    public static List<string> messages;
-    
-    // Här kan vi välja ett unikt event namn för meddelanden.
-    private static readonly string EventName = "hampus_message";
-    
-    static SocketManager()
+    public static class SocketManager
     {
-        messages = [];
-    }
-    
-    // Här ska vi ansluta till socketio servern.
-    public static async Task Connect()
-    {
-        // Vi skapar en instans av SocketIO och konfigurerar den med
-        // våran server url och path.
-        _client = new SocketIO("wss://api.leetcode.se", new SocketIOOptions
+        private static SocketIO? _client;
+        private const string ServerUrl = "wss://api.leetcode.se";
+        private const string Path = "/sys25d";
+        private const string EventNamn = "hampus_message";
+        private const string AnslutHändelse = "användare_anslöt";
+        private const string LämnaHändelse = "användare_lämna";
+        public record ChatMeddelande(string anvandare, string meddelande, string tidpunkt);
+        public static async Task Anslut()
         {
-            Path = Path
-        });
-        
-        // Här nedan anger vi de events vi vill lyssna på
-        // samt en handler för varje event som ska köras.
-        _client.On(EventName, response =>
-        {
-            string receivedMessage = response.GetValue<string>();
+            if (_client != null && _client.Connected)
+            {
+                Console.WriteLine("Redan ansluten.");
+                return;
+            }
             
-            Console.WriteLine($"Received message: {receivedMessage}");
-        });
-
-        // Kod vi kan köra när vi etablerar en anslutning
-        _client.OnConnected += (sender, args) =>
+            _client = new SocketIO(ServerUrl, new SocketIOOptions
+            {
+                Path = Path,
+                Reconnection = true
+            });
+            
+            _client.OnConnected += (sender, args) =>
+            {
+                Console.WriteLine($"[{Nu()}] Ansluten till servern.");
+            };
+            
+            _client.OnDisconnected += (sender, args) =>
+            {
+                Console.WriteLine($"[{Nu()}] Kopplad från servern. Orsak: {args}");
+            };
+            
+            _client.On(EventNamn, svar =>
+            {
+                try
+                {
+                    string text = svar.GetValue<string>();
+                    Console.WriteLine($"[{Nu()}] Mottaget: {text}");
+                }
+                catch
+                {
+                    Console.WriteLine($"[{Nu()}] Mottog ett meddelande, kunde inte läsa det.");
+                }
+            });
+            
+            _client.On(AnslutHändelse, response =>
+            {
+                try
+                {
+                    string user = response.GetValue<string>();
+                    Console.WriteLine($"[{Nu()}] {user} har gått med i chatten!");
+                }
+                catch
+                {
+                    Console.WriteLine($"[{Nu()}] En användare gick med.");
+                }
+            });
+            
+            _client.On(LämnaHändelse, response =>
+            {
+                try
+                {
+                    string user = response.GetValue<string>();
+                    Console.WriteLine($"[{Nu()}] {user} har lämnat chatten.");
+                }
+                catch
+                {
+                    Console.WriteLine($"[{Nu()}] En användare lämnade chatten.");
+                }
+            });
+            
+            try
+            {
+                Console.WriteLine("Försöker ansluta...");
+                await _client.ConnectAsync();
+                await Task.Delay(500);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Kunde inte ansluta: {ex.Message}");
+            }
+        }
+        
+        public static async Task Skicka(string text)
         {
-            Console.WriteLine("Connected!");
-        };
-        
-        // Kod vi kan köra när vi tappar anslutningen
-        _client.OnDisconnected += (sender, args) =>
-        {
-            Console.WriteLine("Disconnected!");
-        };
+            if (_client == null || !_client.Connected)
+            {
+                Console.WriteLine("Du är inte ansluten.");
+                return;
+            }
 
+            try
+            {
+                await _client.EmitAsync(EventNamn, text);
+                Console.WriteLine($"[{Nu()}] Du skickade: {text}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Fel vid sändning: {ex.Message}");
+            }
+        }
         
-        await _client.ConnectAsync();
-        
-        // Vi lägger en fördröjning på 2000ms (2s) för att se till att klienten har anslutit och satt upp allt.
-        await Task.Delay(2000);
-        
-        Console.WriteLine($"Connected: {_client.Connected}");
+        public static async Task Nedkoppling()
+        {
+            if (_client == null) return;
+
+            try
+            {
+                Console.WriteLine("Kopplar ner...");
+                await _client.DisconnectAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Fel vid nedkoppling: {ex.Message}");
+            }
+            finally
+            {
+                _client.Dispose();
+                _client = null;
+                Console.WriteLine("Nedkopplad.");
+            }
+        }
+
+        private static string Nu() => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
     }
 
-    // Skicka meddelanden.
-    public static async Task SendMessage(string message)
-    {
-        await _client.EmitAsync(EventName, message);
-        Console.WriteLine($"You said: {message}");
-    }
-}
