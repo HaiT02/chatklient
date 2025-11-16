@@ -23,7 +23,6 @@ public class SocketManager
 
         try
         {
-            Console.WriteLine("Kopplar ner...");
             await _client.DisconnectAsync();
         }
         catch (Exception ex)
